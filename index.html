@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<title>Monitoring Suhu & Kelembapan</title>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+* { box-sizing: border-box; }
+
+body {
+  font-family: Arial, sans-serif;
+  background: #eef2f7;
+  margin: 0;
+  padding: 10px;
+  text-align: center;
+}
+
+h1 { margin: 15px 0; }
+
+.container {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.card {
+  background: white;
+  width: 260px;
+  margin: 10px;
+  padding: 15px;
+  border-radius: 12px;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+}
+
+.value {
+  font-size: 32px;
+  font-weight: bold;
+}
+
+.status {
+  margin-top: 10px;
+  padding: 6px;
+  border-radius: 8px;
+  color: white;
+  font-weight: bold;
+}
+
+.normal { background: #2ecc71; }
+.panas { background: #e74c3c; }
+.dingin { background: #3498db; }
+.kering { background: #f39c12; }
+.basah { background: #2980b9; }
+
+.chart-card {
+  width: 100%;
+  max-width: 800px;
+  margin: 10px auto;
+}
+
+select {
+  padding: 5px;
+  margin-bottom: 10px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: center;
+}
+
+th, td {
+  padding: 6px;
+  border: 1px solid #ccc;
+}
+
+@media (max-width: 600px) {
+  .card { width: 100%; }
+}
+</style>
+</head>
+
+<body>
+
+<h1>IoT Monitoring Suhu & Kelembapan</h1>
+
+<div class="container">
+  <div class="card">
+    <h3>Suhu</h3>
+    <div class="value"><span id="suhu">--</span> °C</div>
+    <div id="statusSuhu" class="status">---</div>
+  </div>
+
+  <div class="card">
+    <h3>Kelembapan</h3>
+    <div class="value"><span id="hum">--</span> %</div>
+    <div id="statusHum" class="status">---</div>
+  </div>
+</div>
+
+<div class="chart-card">
+  <select id="rangeGrafik" onchange="loadData()">
+    <option value="1">1 Menit</option>
+    <option value="5">5 Menit</option>
+    <option value="60">1 Jam</option>
+    <option value="1440">1 Hari</option>
+  </select>
+  <canvas id="chart"></canvas>
+</div>
+
+<div class="chart-card">
+  <select id="rangeTabel" onchange="loadTable()">
+    <option value="1">1 Menit</option>
+    <option value="5">5 Menit</option>
+    <option value="60">1 Jam</option>
+    <option value="1440">1 Hari</option>
+  </select>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Waktu (Lokal)</th>
+        <th>Suhu (°C)</th>
+        <th>Hum (%)</th>
+      </tr>
+    </thead>
+    <tbody id="tabel"></tbody>
+  </table>
+</div>
+
+<script>
+const CHANNEL_ID = "3207755";
+const READ_API_KEY = "J95UD2X6E0BU6LKR";
+let chart;
+
+// 🔥 FUNGSI KONVERSI WAKTU (IKUT JAM LAPTOP)
+function formatWaktuLokal(utcTime) {
+  const d = new Date(utcTime);
+  return d.toLocaleString("id-ID", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  });
+}
+
+async function loadData() {
+  const menit = document.getElementById("rangeGrafik").value;
+  const results = menit * 4;
+
+  const res = await fetch(
+    `https://api.thingspeak.com/channels/${CHANNEL_ID}/feeds.json?api_key=${READ_API_KEY}&results=${results}`
+  );
+  const data = await res.json();
+  const feeds = data.feeds;
+
+  const labels = [];
+  const suhu = [];
+  const hum = [];
+
+  feeds.forEach(f => {
+    labels.push(formatWaktuLokal(f.created_at));
+    suhu.push(parseFloat(f.field1));
+    hum.push(parseFloat(f.field2));
+  });
+
+  const suhuNow = suhu[suhu.length-1];
+  const humNow = hum[hum.length-1];
+
+  document.getElementById("suhu").innerText = suhuNow.toFixed(1);
+  document.getElementById("hum").innerText = humNow.toFixed(1);
+
+  const sS = document.getElementById("statusSuhu");
+  if (suhuNow < 25) {
+    sS.innerText = "DINGIN";
+    sS.className = "status dingin";
+  } else if (suhuNow <= 30) {
+    sS.innerText = "NORMAL";
+    sS.className = "status normal";
+  } else {
+    sS.innerText = "PANAS";
+    sS.className = "status panas";
+  }
+
+  const sH = document.getElementById("statusHum");
+  if (humNow < 40) {
+    sH.innerText = "KERING";
+    sH.className = "status kering";
+  } else if (humNow <= 70) {
+    sH.innerText = "NORMAL";
+    sH.className = "status normal";
+  } else {
+    sH.innerText = "BASAH";
+    sH.className = "status basah";
+  }
+
+  if (!chart) {
+    chart = new Chart(document.getElementById("chart"), {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          { label: 'Suhu (°C)', data: suhu, borderWidth: 2 },
+          { label: 'Hum (%)', data: hum, borderWidth: 2 }
+        ]
+      }
+    });
+  } else {
+    chart.data.labels = labels;
+    chart.data.datasets[0].data = suhu;
+    chart.data.datasets[1].data = hum;
+    chart.update();
+  }
+}
+
+async function loadTable() {
+  const menit = document.getElementById("rangeTabel").value;
+  const results = menit * 4;
+
+  const res = await fetch(
+    `https://api.thingspeak.com/channels/${CHANNEL_ID}/feeds.json?api_key=${READ_API_KEY}&results=${results}`
+  );
+  const data = await res.json();
+
+  const tbody = document.getElementById("tabel");
+  tbody.innerHTML = "";
+
+  data.feeds.forEach(f => {
+    tbody.innerHTML += `
+      <tr>
+        <td>${formatWaktuLokal(f.created_at)}</td>
+        <td>${f.field1}</td>
+        <td>${f.field2}</td>
+      </tr>`;
+  });
+}
+
+loadData();
+loadTable();
+setInterval(loadData, 15000);     // grafik & indikator
+setInterval(loadTable, 300000);  // tabel tiap 5 menit
+</script>
+
+</body>
+</html>
